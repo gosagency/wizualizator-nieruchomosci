@@ -1,0 +1,24 @@
+node_modules/
+.next/
+out/
+.env
+.env.local
+.env.*.local
+.vercel/
+supabase/.temp/
+playwright-report/
+test-results/
+coverage/
+*.log
+.DS_Store
+Thumbs.db
+*.tsbuildinfo
+next-env.d.ts
+.env.test.local
+
+# Installed third-party agent skills (reinstall: scripts/install-skills.ps1); only project skills are versioned
+.agents/
+.claude/skills/*
+!.claude/skills/aplikacja-wizualizacje-stack/
+!.claude/skills/model-3d-z-rzutu/
+!.claude/skills/wideo-nieruchomosci-higgsfield/
