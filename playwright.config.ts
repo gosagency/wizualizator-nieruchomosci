@@ -8,6 +8,8 @@ const external = process.env.E2E_BASE_URL;
 export default defineConfig({
   testDir: "./e2e",
   fullyParallel: true,
+  // WebGL scenes are rendered in software in headless browsers: more workers only slow each other down
+  workers: 2,
   forbidOnly: !!process.env.CI,
   retries: process.env.CI ? 2 : 0,
   reporter: "list",
