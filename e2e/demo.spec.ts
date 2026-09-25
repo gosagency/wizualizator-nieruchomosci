@@ -25,7 +25,8 @@ test("agent creates an offer from room areas only", async ({ page }) => {
   await page.getByRole("button", { name: "Dalej →" }).click();
   await expect(page.locator("canvas").first()).toBeVisible({ timeout: 20_000 });
   await page.getByRole("button", { name: "Zapisz ofertę" }).click();
-  await expect(page).toHaveURL(/\/oferty\/[0-9a-f]{8}$/);
+  // the offer page compiles on first visit in dev mode, which can take a while under load
+  await expect(page).toHaveURL(/\/oferty\/[0-9a-f]{8}$/, { timeout: 20_000 });
   await expect(page.getByRole("heading", { level: 1 })).toHaveText("2 pokoje z balkonem, 52 m²");
 });
 
