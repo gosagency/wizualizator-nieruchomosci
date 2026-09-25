@@ -1,5 +1,12 @@
 import * as THREE from "three";
 import { OrbitControls } from "three/addons/controls/OrbitControls.js";
+import { RoundedBoxGeometry } from "three/addons/geometries/RoundedBoxGeometry.js";
+import { RoomEnvironment } from "three/addons/environments/RoomEnvironment.js";
+import { EffectComposer } from "three/addons/postprocessing/EffectComposer.js";
+import { RenderPass } from "three/addons/postprocessing/RenderPass.js";
+import { GTAOPass } from "three/addons/postprocessing/GTAOPass.js";
+import { OutputPass } from "three/addons/postprocessing/OutputPass.js";
+import { buildDetails } from "./details";
 import type { FurnitureItem, Plan, Rect, Room, Wall } from "@/lib/plan/types";
 import { WalkController, type WalkInput } from "./walkController";
 
@@ -10,6 +17,8 @@ import { WalkController, type WalkInput } from "./walkController";
  */
 
 const PI = Math.PI;
+/** ?ao=1 keeps ambient occlusion on even on slow devices (for checking the look). */
+const FORCE_AO = typeof location !== "undefined" && new URLSearchParams(location.search).get("ao") === "1";
 const WALL_H = 2.7;
 const CUT_H = 1.0;
 
@@ -51,6 +60,14 @@ export class ApartmentScene {
   private interacted = false;
   private radius: number;
   private ceiling = new THREE.Group();
+  private trims = new THREE.Group();
+  private sky: { day: THREE.Texture; evening: THREE.Texture } | null = null;
+  private composer: EffectComposer | null = null;
+  private gtao: GTAOPass | null = null;
+  /** ambient occlusion is switched off automatically when the device is too slow */
+  private aoOn = true;
+  private slowFrames = 0;
+  private envTexture: THREE.Texture | null = null;
   private walker: WalkController | null = null;
   private cutawayBeforeWalk = false;
   private lastFrame = 0;
@@ -64,7 +81,15 @@ export class ApartmentScene {
     this.renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true });
     this.renderer.setPixelRatio(opts.pixelRatio ?? Math.min(window.devicePixelRatio || 1, 2));
     this.renderer.shadowMap.enabled = true;
-    this.renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+    this.renderer.shadowMap.type = THREE.PCFShadowMap;
+    // photographic look: AgX tone mapping and a soft studio environment for reflections
+    // Khronos PBR Neutral keeps material colours (wood, fabric) true while compressing highlights
+    this.renderer.toneMapping = THREE.NeutralToneMapping;
+    this.renderer.toneMappingExposure = 0.95;
+    const pmrem = new THREE.PMREMGenerator(this.renderer);
+    this.envTexture = pmrem.fromScene(new RoomEnvironment(), 0.04).texture;
+    pmrem.dispose();
+    this.scene.environment = this.envTexture;
     this.renderer.domElement.style.display = "block";
     this.renderer.domElement.style.width = "100%";
     this.renderer.domElement.style.height = "100%";
@@ -125,6 +150,10 @@ export class ApartmentScene {
     this.buildSlabAndFloors();
     this.buildCeiling();
     this.buildWalls(WALL_H);
+    const details = buildDetails(plan, { trim: this.mats.trim, frame: this.mats.frame, sill: this.mats.sill, shade: this.mats.shade, dark: this.mats.dark });
+    this.trims = details.trims;
+    this.scene.add(details.trims, details.skirting);
+    this.ceiling.add(details.lights);
     for (const item of plan.furniture) buildFurniture(item, this.furn, this.mats);
     this.setEvening(false);
 
@@ -167,6 +196,7 @@ export class ApartmentScene {
   setCutaway(on: boolean) {
     this.cutaway = on;
     this.buildWalls(on ? CUT_H : WALL_H);
+    this.trims.visible = !on;
   }
 
   setEvening(eve: boolean) {
@@ -176,23 +206,26 @@ export class ApartmentScene {
     const dir = { n: [0, -1], s: [0, 1], e: [1, 0], w: [-1, 0] }[from];
     if (eve) {
       this.sun.color.setHex(0xff9a52);
-      this.sun.intensity = 0.85 * PI;
+      this.sun.intensity = 1.1 * PI;
       this.sun.position.set(c.x + dir[0] * 14, 3.2, c.z + dir[1] * 14 - 1.5);
-      this.hemi.intensity = 0.22 * PI;
+      this.hemi.intensity = 0.12 * PI;
       this.hemi.color.setHex(0x9fb0d6);
-      this.ambient.intensity = 0.08 * PI;
-      this.lamps.forEach((l) => (l.intensity = 0.55 * PI * 4));
-      this.mats.shade.emissiveIntensity = 0.9;
+      this.ambient.intensity = 0.02 * PI;
+      this.scene.environmentIntensity = 0.12;
+      this.lamps.forEach((l) => (l.intensity = 0.55 * PI * 5));
+      this.mats.shade.emissiveIntensity = 1.4;
     } else {
-      this.sun.color.setHex(0xfff4e2);
-      this.sun.intensity = 0.75 * PI;
+      this.sun.color.setHex(0xfff1dc);
+      this.sun.intensity = 1.6 * PI;
       this.sun.position.set(c.x + dir[0] * 7 - 3, 14, c.z + dir[1] * 7 + 6);
-      this.hemi.intensity = 0.62 * PI;
+      this.hemi.intensity = 0.26 * PI;
       this.hemi.color.setHex(0xffffff);
-      this.ambient.intensity = 0.12 * PI;
+      this.ambient.intensity = 0.03 * PI;
+      this.scene.environmentIntensity = 0.3;
       this.lamps.forEach((l) => (l.intensity = 0));
       this.mats.shade.emissiveIntensity = 0;
     }
+    if (this.walker && this.sky) this.scene.background = eve ? this.sky.evening : this.sky.day;
   }
 
   highlight(id: string | null) {
@@ -262,6 +295,10 @@ export class ApartmentScene {
     this.disposed = true;
     this.walker?.dispose();
     this.walker = null;
+    this.disposeComposer();
+    this.envTexture?.dispose();
+    this.sky?.day.dispose();
+    this.sky?.evening.dispose();
     this.pause();
     this.resizeObs?.disconnect();
     this.controls.dispose();
@@ -291,6 +328,9 @@ export class ApartmentScene {
     this.highlight(null);
     this.ceiling.visible = true;
     this.controls.enabled = false;
+    this.sky ??= { day: skyTexture(false), evening: skyTexture(true) };
+    this.scene.background = this.evening ? this.sky.evening : this.sky.day;
+    this.createComposer();
     this.walker = new WalkController({
       camera: this.camera,
       dom: this.renderer.domElement,
@@ -306,12 +346,43 @@ export class ApartmentScene {
     this.walker.dispose();
     this.walker = null;
     this.ceiling.visible = false;
+    this.scene.background = null;
+    this.disposeComposer();
     if (this.cutawayBeforeWalk) this.setCutaway(true);
     this.controls.enabled = true;
     this.camera.position.copy(this.fittedHome());
     this.controls.target.copy(this.center);
     this.camera.up.set(0, 1, 0);
     this.controls.update();
+  }
+
+  private createComposer() {
+    if (this.composer) return;
+    const w = this.host.clientWidth || 800;
+    const h = this.host.clientHeight || 600;
+    // post-processing at most 1.5× pixel density: phones with 3× screens stay smooth
+    const pr = Math.min(1.5, this.renderer.getPixelRatio());
+    const target = new THREE.WebGLRenderTarget(w * pr, h * pr, { type: THREE.HalfFloatType, samples: 4 });
+    const composer = new EffectComposer(this.renderer, target);
+    composer.addPass(new RenderPass(this.scene, this.camera));
+    const gtao = new GTAOPass(this.scene, this.camera, w, h);
+    gtao.updateGtaoMaterial({ radius: 0.55, distanceExponent: 1, thickness: 1, scale: 1, samples: 16 });
+    gtao.updatePdMaterial({ lumaPhi: 10, depthPhi: 2, normalPhi: 4, radius: 12, rings: 3, samples: 20 });
+    gtao.blendIntensity = 1;
+    composer.addPass(gtao);
+    composer.addPass(new OutputPass());
+    composer.setPixelRatio(pr);
+    composer.setSize(w, h);
+    this.composer = composer;
+    this.gtao = gtao;
+    this.slowFrames = 0;
+  }
+
+  private disposeComposer() {
+    this.gtao?.dispose();
+    this.composer?.dispose();
+    this.composer = null;
+    this.gtao = null;
   }
 
   setWalkInput(input: Partial<WalkInput>) {
@@ -328,6 +399,7 @@ export class ApartmentScene {
     const h = this.host.clientHeight;
     if (!w || !h) return;
     this.renderer.setSize(w, h, false);
+    this.composer?.setSize(w, h);
     this.camera.aspect = w / h;
     this.camera.updateProjectionMatrix();
     if (!this.interacted && !this.tween && !this.walker) this.camera.position.copy(this.fittedHome());
@@ -338,7 +410,13 @@ export class ApartmentScene {
     this.lastFrame = now;
     if (this.walker) {
       this.walker.update(dt);
-      this.renderer.render(this.scene, this.camera);
+      // drop ambient occlusion if the device cannot keep ~28 fps
+      if (this.composer && this.aoOn) {
+        this.slowFrames = dt > 1 / 28 ? this.slowFrames + 1 : Math.max(0, this.slowFrames - 1);
+        if (this.slowFrames > 45 && !FORCE_AO) this.aoOn = false;
+      }
+      if (this.composer && this.aoOn) this.composer.render(dt);
+      else this.renderer.render(this.scene, this.camera);
       this.onFrameCbs.forEach((cb) => cb());
       this.raf = requestAnimationFrame(this.loop);
       return;
@@ -519,28 +597,48 @@ function createMaterials() {
       g.fillRect(0, (i * S) / 10 + 2, S, S / 10 - 4);
     }
   });
+  // fine wood grain for furniture (the floor texture has planks)
+  const grainTex = canvasTex((g, S) => {
+    const r = rnd(11);
+    g.fillStyle = "#c79d6e";
+    g.fillRect(0, 0, S, S);
+    for (let i = 0; i < 140; i++) {
+      const y = r() * S;
+      g.strokeStyle = `rgba(${90 + r() * 40},${60 + r() * 25},${30 + r() * 20},${0.08 + r() * 0.12})`;
+      g.lineWidth = 0.5 + r() * 2;
+      g.beginPath();
+      g.moveTo(0, y);
+      g.bezierCurveTo(S * 0.3, y + r() * 10 - 5, S * 0.6, y + r() * 10 - 5, S, y + r() * 6 - 3);
+      g.stroke();
+    }
+  }, 256);
+  const fabric = (color: number, sheenColor: number) =>
+    new THREE.MeshPhysicalMaterial({ color, roughness: 0.92, sheen: 1, sheenRoughness: 0.75, sheenColor });
   const M = (color: number, o: THREE.MeshStandardMaterialParameters = {}) =>
     new THREE.MeshStandardMaterial({ color, roughness: 0.85, metalness: 0, ...o });
   return {
-    wall: M(0xf3f2ee, { roughness: 0.95 }),
+    wall: M(0xf1efea, { roughness: 0.92 }),
     ceiling: M(0xfafaf8, { roughness: 0.95, side: THREE.DoubleSide }),
     cap: M(0x3c4440),
     slab: M(0xb9bbb5),
-    white: M(0xf2f1ec, { roughness: 0.6 }),
-    oak: M(0xc49a6c, { roughness: 0.7 }),
-    sage: M(0x7f9a86),
-    sageL: M(0x98b09e),
-    dark: M(0x3a3d3b, { roughness: 0.5 }),
-    linen: M(0xece9e2),
-    beige: M(0xd9cfc0),
-    rug: M(0xd8d2c5),
+    white: M(0xf4f3ef, { roughness: 0.32 }),
+    oak: M(0xffffff, { map: grainTex, roughness: 0.55 }),
+    sage: fabric(0x7a957f, 0xb8cdb9),
+    sageL: fabric(0x93ab98, 0xc9d8cb),
+    dark: M(0x2f3231, { roughness: 0.28 }),
+    linen: fabric(0xefece5, 0xffffff),
+    beige: fabric(0xd6cab8, 0xf0e7d8),
+    rug: fabric(0xd6cfc1, 0xece6da),
     rugRound: M(0xe0cdb5),
-    terra: M(0xc39a80),
-    leaf: M(0x5e8c5a, { flatShading: true }),
+    terra: fabric(0xc0957a, 0xe2c3ad),
+    leaf: M(0x4f7d4a, { roughness: 0.6 }),
     pot: M(0xd7d2c8),
     water: M(0xbfd6db, { roughness: 0.2 }),
-    metal: M(0x44484a, { roughness: 0.4, metalness: 0.5 }),
-    glass: new THREE.MeshStandardMaterial({ color: 0xbfd8e2, transparent: true, opacity: 0.28, roughness: 0.1, metalness: 0.1, depthWrite: false }),
+    metal: M(0x3d4143, { roughness: 0.3, metalness: 0.85 }),
+    glass: new THREE.MeshStandardMaterial({ color: 0xcfe3ea, transparent: true, opacity: 0.18, roughness: 0.04, metalness: 0.25, depthWrite: false }),
+    trim: M(0xf7f6f2, { roughness: 0.4 }),
+    frame: M(0xf2f2ef, { roughness: 0.35 }),
+    sill: M(0xe4e1da, { roughness: 0.25 }),
     mirror: M(0xc9d6da, { roughness: 0.1, metalness: 0.6 }),
     shade: new THREE.MeshStandardMaterial({ color: 0xf1eadb, roughness: 0.9, emissive: 0xffb35c, emissiveIntensity: 0 }),
     floors: {
@@ -579,6 +677,50 @@ function cyl(x: number, z: number, r: number, y0: number, y1: number, m: THREE.M
   return mesh;
 }
 
+/** Box with softly rounded edges (furniture reads as real objects, not blocks). */
+function softBox(x0: number, x1: number, y0: number, y1: number, z0: number, z1: number, m: THREE.Material, parent: THREE.Object3D) {
+  const w = x1 - x0;
+  const h = y1 - y0;
+  const d = z1 - z0;
+  const r = Math.min(0.035, Math.min(w, h, d) * 0.3);
+  const geo = r > 0.004 ? new RoundedBoxGeometry(w, h, d, 2, r) : new THREE.BoxGeometry(w, h, d);
+  const mesh = new THREE.Mesh(geo, m);
+  mesh.position.set((x0 + x1) / 2, (y0 + y1) / 2, (z0 + z1) / 2);
+  mesh.castShadow = mesh.receiveShadow = true;
+  parent.add(mesh);
+  return mesh;
+}
+
+/** Equirectangular sky for walk mode, seen through the windows. */
+function skyTexture(evening: boolean) {
+  const c = document.createElement("canvas");
+  c.width = 1024;
+  c.height = 512;
+  const g = c.getContext("2d")!;
+  const grad = g.createLinearGradient(0, 0, 0, 512);
+  const stops = evening
+    ? ["#1f2a4a", "#6b5f8f", "#f0a67a", "#ffd2a0", "#3a3a3e"]
+    : ["#6fa3d8", "#a9cbea", "#e3eef6", "#f4f6f4", "#9aa39a"];
+  [0, 0.3, 0.47, 0.5, 0.56].forEach((p, i) => grad.addColorStop(p, stops[i]));
+  grad.addColorStop(1, evening ? "#262628" : "#7e877e");
+  g.fillStyle = grad;
+  g.fillRect(0, 0, 1024, 512);
+  // distant rooftops on the horizon
+  g.fillStyle = evening ? "rgba(40,36,48,.85)" : "rgba(120,128,126,.55)";
+  let x = 0;
+  const r = rnd(5);
+  while (x < 1024) {
+    const bw = 20 + r() * 60;
+    const bh = 6 + r() * 26;
+    g.fillRect(x, 256 - bh, bw, bh + 6);
+    x += bw + r() * 12;
+  }
+  const t = new THREE.CanvasTexture(c);
+  t.mapping = THREE.EquirectangularReflectionMapping;
+  t.colorSpace = THREE.SRGBColorSpace;
+  return t;
+}
+
 function wallBox(w: Wall, a: number, b: number, y0: number, y1: number, m: THREE.Material | THREE.Material[], parent: THREE.Object3D) {
   if (y1 - y0 < 0.005 || b - a < 0.005) return null;
   const h = w.t / 2;
@@ -604,7 +746,7 @@ function buildFurniture(item: FurnitureItem, parent: THREE.Group, m: Mats) {
   g.rotation.y = FACE_ROT[face];
   const hw = W / 2;
   const hd = D / 2;
-  const b = (ax0: number, ax1: number, y0: number, y1: number, az0: number, az1: number, mat: THREE.Material) => box(ax0, ax1, y0, y1, az0, az1, mat, g);
+  const b = (ax0: number, ax1: number, y0: number, y1: number, az0: number, az1: number, mat: THREE.Material) => softBox(ax0, ax1, y0, y1, az0, az1, mat, g);
   const c = (x: number, z: number, r: number, y0: number, y1: number, mat: THREE.Material, rTop?: number) => cyl(x, z, r, y0, y1, mat, g, rTop);
   const chair = (x: number, z: number, rot: number, mat: THREE.Material) => {
     const ch = new THREE.Group();
@@ -655,7 +797,7 @@ function buildFurniture(item: FurnitureItem, parent: THREE.Group, m: Mats) {
     case "plant": {
       const h = item.h ?? 0.35;
       c(0, 0, 0.16, 0, 0.32, m.pot, 0.19);
-      const f = new THREE.Mesh(new THREE.IcosahedronGeometry(h, 1), m.leaf);
+      const f = new THREE.Mesh(new THREE.IcosahedronGeometry(h, 3), m.leaf);
       f.position.set(0, 0.32 + h * 0.95, 0);
       f.scale.y = 1.25;
       f.castShadow = true;
