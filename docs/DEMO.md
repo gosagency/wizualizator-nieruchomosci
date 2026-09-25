@@ -18,6 +18,7 @@ Odbiorca: dyrektor oddziału biura nieruchomości. Cel: umówić pilotaż w jego
 |---|---|---|
 | 1 | Panel **Oferty** | „To panel oddziału. Każda oferta ma model 3D, filmy i link. Tu widać też szacowaną oszczędność względem zleceń zewnętrznych.” |
 | 2 | Oferta przykładowa → **Model 3D** | Obróć model, kliknij Sypialnię, przełącz „Stan deweloperski”, „Przekrój” i „Wieczór”. „Kupujący rozumie układ w 10 sekund, bez przyjazdu.” |
+| 2b | **Spacer** (przełącznik nad modelem) | Wejdź do środka: kliknij „Salon”, potem „Sypialnia” na liście, przeciągnij, żeby się rozejrzeć, włącz „Wieczór”. „Klient chodzi po mieszkaniu jak w grze, z telefonu też. Działa z samego metrażu pokoi.” |
 | 3 | **Filmy** | Puść rolkę 9:16. „Ten film zrobiła aplikacja sama, z logo biura, ceną i kontaktem do agenta. Bez filmowca, koszt 0 zł.” |
 | 4 | **Zdjęcia i wizualizacje** | Przesuń suwak: stan deweloperski ↔ umeblowane. „Kupujący widzi, jak pokój może wyglądać. Powstało z modelu 3D, bez grafika.” |
 | 4a | **Ze zdjęć do filmu i 3D** → **Film AI** (na żywo, na początku spotkania) | Wgraj 2–3 zdjęcia pokoi i kliknij „Utwórz film AI”. „Zdjęcie z telefonu zamienia się w ujęcie jak z kamery, a potem w film z logo biura. Otwarty model AI na naszym serwerze, bez opłat za generowanie.” Każde ujęcie liczy się ok. 5 min (4 s w HD), więc zleć 2 zdjęcia na początku i wróć do filmu pod koniec rozmowy. |

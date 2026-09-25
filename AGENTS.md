@@ -45,7 +45,7 @@ npm run e2e          # Playwright; needs: npx playwright install chromium
 | `app/(panel)/` | office panel: offers, offer wizard, offer page, /wyprobuj (photo → 3D/film), settings, integrations |
 | `app/o/[slug]`, `app/embed/[slug]` | public offer page and iframe embed |
 | `lib/plan/` | plan types, `autoLayout.ts` (floor plan from room areas), sample flat |
-| `components/model3d/` | three.js apartment scene and viewer |
+| `components/model3d/` | three.js apartment scene and viewer; `walkController.ts` first-person walk (collisions and routes in `lib/plan/walk.ts`) |
 | `lib/video/` | in-browser video recording: 3D tour, reel, photo-3D film, AI montage, room views |
 | `lib/depth/`, `components/photo3d/` | depth from a photo (Depth Anything V2) and 3D photo viewer |
 | `lib/aiVideo/`, `components/AiVideoPanel.tsx` | client for the Film AI worker |

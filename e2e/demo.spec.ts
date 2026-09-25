@@ -35,3 +35,14 @@ test("photo-to-3D page is reachable from the menu", async ({ page }) => {
   await expect(page.getByRole("heading", { level: 1 })).toHaveText("Ze zdjęć do filmu i 3D");
   await expect(page.getByText("Wybierz lub zrób zdjęcia pokoi")).toBeVisible();
 });
+
+test("walk mode: the visitor starts in the hallway and walks to the bedroom", async ({ page }) => {
+  await page.goto("/oferty/podgorze-58");
+  await expect(page.locator("canvas").first()).toBeVisible({ timeout: 20_000 });
+  await page.getByRole("button", { name: "Spacer", exact: true }).click();
+  await expect(page.getByText("Przedpokój · 8,3 m²")).toBeVisible();
+  await page.locator("aside").getByRole("button", { name: /^Sypialnia/ }).click();
+  await expect(page.getByText("Sypialnia · 13,6 m²")).toBeVisible({ timeout: 15_000 });
+  await page.getByRole("button", { name: "Z góry", exact: true }).click();
+  await expect(page.getByRole("button", { name: "Rzut z góry" })).toBeVisible();
+});

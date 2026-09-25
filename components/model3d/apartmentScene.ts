@@ -1,6 +1,7 @@
 import * as THREE from "three";
 import { OrbitControls } from "three/addons/controls/OrbitControls.js";
 import type { FurnitureItem, Plan, Rect, Room, Wall } from "@/lib/plan/types";
+import { WalkController, type WalkInput } from "./walkController";
 
 /*
  * Interactive 3D apartment built from a Plan (skill: model-3d-z-rzutu).
@@ -49,6 +50,12 @@ export class ApartmentScene {
   /** until the user drags the model, the camera follows the container size */
   private interacted = false;
   private radius: number;
+  private ceiling = new THREE.Group();
+  private walker: WalkController | null = null;
+  private cutawayBeforeWalk = false;
+  private lastFrame = 0;
+  /** called when the visitor enters another room in walk mode */
+  onRoomChange?: (room: Room | undefined) => void;
 
   constructor(private host: HTMLElement, plan: Plan, opts: { pixelRatio?: number; autoStart?: boolean } = {}) {
     this.plan = plan;
@@ -116,6 +123,7 @@ export class ApartmentScene {
     this.mats = createMaterials();
     this.scene.add(this.furn, this.wallsGroup);
     this.buildSlabAndFloors();
+    this.buildCeiling();
     this.buildWalls(WALL_H);
     for (const item of plan.furniture) buildFurniture(item, this.furn, this.mats);
     this.setEvening(false);
@@ -252,6 +260,8 @@ export class ApartmentScene {
 
   dispose() {
     this.disposed = true;
+    this.walker?.dispose();
+    this.walker = null;
     this.pause();
     this.resizeObs?.disconnect();
     this.controls.dispose();
@@ -268,6 +278,51 @@ export class ApartmentScene {
     return this.cutaway;
   }
 
+  get isWalking() {
+    return !!this.walker;
+  }
+
+  /** First-person walk through the apartment (eye level, collisions, ceiling on). */
+  enterWalk() {
+    if (this.walker) return;
+    this.tween = null;
+    this.cutawayBeforeWalk = this.cutaway;
+    if (this.cutaway) this.setCutaway(false);
+    this.highlight(null);
+    this.ceiling.visible = true;
+    this.controls.enabled = false;
+    this.walker = new WalkController({
+      camera: this.camera,
+      dom: this.renderer.domElement,
+      plan: this.plan,
+      floors: [...this.floorMeshes.values()].flat(),
+      occluders: () => [this.wallsGroup, this.furn],
+      onRoom: (room) => this.onRoomChange?.(room),
+    });
+  }
+
+  exitWalk() {
+    if (!this.walker) return;
+    this.walker.dispose();
+    this.walker = null;
+    this.ceiling.visible = false;
+    if (this.cutawayBeforeWalk) this.setCutaway(true);
+    this.controls.enabled = true;
+    this.camera.position.copy(this.fittedHome());
+    this.controls.target.copy(this.center);
+    this.camera.up.set(0, 1, 0);
+    this.controls.update();
+  }
+
+  setWalkInput(input: Partial<WalkInput>) {
+    this.walker?.setInput(input);
+  }
+
+  walkToRoom(id: string) {
+    const r = this.plan.rooms.find((x) => x.id === id);
+    if (r && this.walker) this.walker.walkTo(r.c[0], r.c[1], r);
+  }
+
   private resize() {
     const w = this.host.clientWidth;
     const h = this.host.clientHeight;
@@ -275,10 +330,19 @@ export class ApartmentScene {
     this.renderer.setSize(w, h, false);
     this.camera.aspect = w / h;
     this.camera.updateProjectionMatrix();
-    if (!this.interacted && !this.tween) this.camera.position.copy(this.fittedHome());
+    if (!this.interacted && !this.tween && !this.walker) this.camera.position.copy(this.fittedHome());
   }
 
   private loop = (now: number) => {
+    const dt = Math.min(0.5, (now - (this.lastFrame || now)) / 1000);
+    this.lastFrame = now;
+    if (this.walker) {
+      this.walker.update(dt);
+      this.renderer.render(this.scene, this.camera);
+      this.onFrameCbs.forEach((cb) => cb());
+      this.raf = requestAnimationFrame(this.loop);
+      return;
+    }
     if (this.tween) {
       const k = Math.min(1, (now - this.tween.t0) / this.tween.d);
       const e = ease(k);
@@ -317,6 +381,24 @@ export class ApartmentScene {
       }
       this.floorMeshes.set(r.id, meshes);
     }
+  }
+
+  /** Ceiling over the rooms, shown only in walk mode (it would hide the model from above). */
+  private buildCeiling() {
+    for (const r of this.plan.rooms) {
+      if (r.extra) continue;
+      for (const [x0, x1, z0, z1] of r.rects) {
+        const geo = new THREE.PlaneGeometry(x1 - x0, z1 - z0);
+        geo.rotateX(PI / 2);
+        geo.translate((x0 + x1) / 2, WALL_H - 0.005, (z0 + z1) / 2);
+        const mesh = new THREE.Mesh(geo, this.mats.ceiling);
+        mesh.castShadow = true;
+        mesh.receiveShadow = true;
+        this.ceiling.add(mesh);
+      }
+    }
+    this.ceiling.visible = false;
+    this.scene.add(this.ceiling);
   }
 
   private buildWalls(H: number) {
@@ -441,6 +523,7 @@ function createMaterials() {
     new THREE.MeshStandardMaterial({ color, roughness: 0.85, metalness: 0, ...o });
   return {
     wall: M(0xf3f2ee, { roughness: 0.95 }),
+    ceiling: M(0xfafaf8, { roughness: 0.95, side: THREE.DoubleSide }),
     cap: M(0x3c4440),
     slab: M(0xb9bbb5),
     white: M(0xf2f1ec, { roughness: 0.6 }),
