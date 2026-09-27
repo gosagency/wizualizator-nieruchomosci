@@ -94,6 +94,11 @@ test("Film AI from an imported offer: pick photos, progress survives switching t
   await page.getByRole("button", { name: "Zapisz ofertę" }).click();
   await expect(page).toHaveURL(/\/oferty\/[0-9a-f]{8}$/, { timeout: 20_000 });
 
+  // without a video server (no ComfyUI) Film AI is simply not offered; browser films still are
+  await page.getByRole("tab", { name: "Filmy" }).click();
+  await expect(page.getByRole("heading", { name: "Spacer 3D · poziomy 16:9" })).toBeVisible();
+  await expect(page.getByText("Film AI z ruchem kamery")).toHaveCount(0);
+
   // stand-in for our video worker (Wan 2.2 on the owner GPU)
   const worker = "https://worker.example";
   const cors = { "access-control-allow-origin": "*", "access-control-allow-methods": "GET, POST, OPTIONS", "access-control-allow-headers": "content-type" };

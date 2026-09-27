@@ -160,6 +160,9 @@ export function AiVideoPanel({ photos, org, pick, cards, onFinished }: Props) {
   const busy = jobs.some((j) => j.status === "sending" || j.status === "queued" || j.status === "running") || montage !== null;
   const remaining = jobs.filter((j) => j.status === "queued" || j.status === "running" || j.status === "sending").length;
 
+  // Film AI is optional: without a running video server the panel is not shown at all.
+  if (!worker.ok) return null;
+
   return (
     <Card className="flex flex-col gap-4">
       <div className="flex flex-wrap items-start justify-between gap-3">
@@ -169,9 +172,7 @@ export function AiVideoPanel({ photos, org, pick, cards, onFinished }: Props) {
             Każde zdjęcie zamienia się w 4-sekundowe ujęcie HD z płynnym ruchem kamery, a potem w jeden film z logo biura. Film zaczyna się i kończy na prawdziwym zdjęciu, więc meble zostają na miejscu. Generuje go otwarty model Wan 2.2 na naszym serwerze, bez płatnych usług.
           </p>
         </div>
-        <Pill tone={worker.ok ? "brand" : "stone"}>
-          {worker.ok === null ? "Łączenie z serwerem wideo…" : worker.ok ? `Serwer wideo online${worker.queue ? ` · w kolejce: ${worker.queue}` : ""}` : "Serwer wideo offline"}
-        </Pill>
+        <Pill tone="brand">{`Serwer wideo online${worker.queue ? ` · w kolejce: ${worker.queue}` : ""}`}</Pill>
       </div>
 
       {pick && (
@@ -201,12 +202,6 @@ export function AiVideoPanel({ photos, org, pick, cards, onFinished }: Props) {
         </div>
       )}
 
-      {worker.ok === false && (
-        <p className="rounded-xl bg-amber-50 px-4 py-3 text-sm text-amber-800">
-          Serwer wideo jest teraz wyłączony. Model 3D i film 3D działają normalnie. Film AI będzie dostępny, gdy serwer zostanie uruchomiony.
-        </p>
-      )}
-
       <div className="flex flex-wrap items-center gap-2">
         <div className="flex rounded-full bg-stone-100 p-0.5 text-sm">
           {(["16:9", "9:16"] as const).map((f) => (
@@ -222,7 +217,7 @@ export function AiVideoPanel({ photos, org, pick, cards, onFinished }: Props) {
             </button>
           ))}
         </div>
-        <Button onClick={start} disabled={!worker.ok || !chosen.length || busy}>
+        <Button onClick={start} disabled={!chosen.length || busy}>
           {busy ? "Trwa generowanie…" : `Utwórz film AI (${clipsLabel(chosen.length)})`}
         </Button>
         {chosen.length > 0 && !busy && <span className="text-xs text-stone-500">ok. {chosen.length * MINUTES_PER_CLIP} min</span>}

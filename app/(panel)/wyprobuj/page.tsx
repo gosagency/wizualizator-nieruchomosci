@@ -152,7 +152,7 @@ export default function TryPhoto3D() {
               </div>
             )}
             <p className="text-xs leading-5 text-stone-500">
-              Scena 3D: głębia szacowana ze zdjęcia przez model Depth Anything V2 w Twojej przeglądarce (to zdjęcie nie jest nigdzie wysyłane). Film AI: zdjęcie trafia tylko na nasz serwer wideo. Wszystko to wizualizacje poglądowe.
+              Scena 3D: głębia szacowana ze zdjęcia przez model Depth Anything V2 w Twojej przeglądarce (to zdjęcie nie jest nigdzie wysyłane). Wszystko to wizualizacje poglądowe.
             </p>
           </div>
 

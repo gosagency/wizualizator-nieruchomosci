@@ -41,7 +41,7 @@ Pełne skille zewnętrzne (Vercel, Supabase, Higgsfield, three.js, Anthropic) in
 ## Stan (25.09.2026): demo przed M1
 
 - Działa demo bez bazy: `lib/demo/` (localStorage + IndexedDB). W M1–M2 zamieniamy na Supabase, model danych w `lib/demo/types.ts` odpowiada tabelom z roadmapy.
-- **Decyzja właściciela (25.09.2026): bez płatnych usług AI, bez Higgsfield.** Wszystko działa w przeglądarce na otwartych narzędziach: model 3D z metrażu (`components/model3d/`), wizualizacje pokoi z modelu (`lib/video/views.ts`), zdjęcie → 3D przez Depth Anything V2 + transformers.js (`lib/depth/`, `components/photo3d/`), filmy (`lib/video/`). Film AI ze zdjęcia: otwarty Wan 2.2 TI2V-5B w lokalnym ComfyUI na GPU właściciela (`video-worker/`, `npm run wideo:publikuj`, tunel cloudflared), klient w `lib/aiVideo/`. Nie proponuj wydawania kredytów Higgsfield. Zasady 3 i 6 oraz etap M4 z roadmapy są wstrzymane.
+- **Decyzja właściciela (25.09.2026): bez płatnych usług AI, bez Higgsfield.** Wszystko działa w przeglądarce na otwartych narzędziach: model 3D z metrażu (`components/model3d/`), wizualizacje pokoi z modelu (`lib/video/views.ts`), zdjęcie → 3D przez Depth Anything V2 + transformers.js (`lib/depth/`, `components/photo3d/`), filmy (`lib/video/`). Film AI ze zdjęcia (Wan 2.2 w ComfyUI, `video-worker/`, `lib/aiVideo/`) jest wyłączony: **27.09.2026 właściciel usunął ComfyUI i nie chce go z powrotem**. Panel Film AI pokazuje się tylko przy działającym serwerze wideo, więc bez niego go nie ma; nie instaluj ComfyUI ponownie i nie proponuj tego. Nie proponuj wydawania kredytów Higgsfield. Zasady 3 i 6 oraz etap M4 z roadmapy są wstrzymane.
 - Rzut z samego metrażu pokoi: `lib/plan/autoLayout.ts`.
 - Import oferty z linku do ogłoszenia (Nowa oferta → „Wklej link”): `app/api/import/` pobiera stronę tylko z portali z listy `lib/import/types.ts` (sprawdzane też po przekierowaniach), `lib/import/parse.ts` czyta `__NEXT_DATA__` Otodom, a dla innych portali OpenGraph i JSON-LD. Zdjęcia pobiera przeglądarka, a gdy CDN nie zwraca CORS, idą przez pośrednika `/api/import/image` (tylko olxcdn.com). Metraże pokoi są szacowane (`lib/plan/presets.ts`). Na produkcji Otodom odpowiada serwerom Vercel (sprawdzone 27.09.2026). W publicznym repo nie zapisujemy prawdziwych stron ogłoszeń ani danych sprzedających.
 - Publiczny adres: https://wizualizator-nieruchomosci.vercel.app (Vercel, konto właściciela, produkcja, bo podglądy są chronione logowaniem). Wdrożenie: czysta kopia `git archive HEAD` bez `.claude`, `.agents`, `skills-lock.json`, `scripts`, potem `vercel deploy --prod --yes` w tej kopii.
@@ -54,7 +54,7 @@ npm run dev        # aplikacja lokalnie
 npm run test       # Vitest
 npm run e2e        # Playwright (serwer na :3100; E2E_BASE_URL=http://localhost:3010 przy działającym dev)
 npm run demo       # build + start na :4000 (pokaz)
-npm run wideo      # serwer Film AI (ComfyUI + worker + tunel); -- --publikuj zapisuje adres w Vercel i wdraża
+npm run wideo      # serwer Film AI: nieużywany od 27.09.2026 (ComfyUI usunięty)
 npm run deploy     # wdrożenie ostatniego commita na Vercel (produkcja)
 npm run typecheck  # next typegen + tsc
 npm run lint       # ESLint
