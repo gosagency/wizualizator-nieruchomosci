@@ -117,6 +117,39 @@ export function drawLowerThird(
 
 export type CardLine = { text: string; size: number; weight?: number; opacity?: number; gap?: number };
 
+/** Greedy word wrap for the font currently set on g. */
+function wrapWords(g: CanvasRenderingContext2D, text: string, maxW: number): string[] {
+  const rows: string[] = [];
+  let row = "";
+  for (const word of text.split(/\s+/).filter(Boolean)) {
+    const next = row ? `${row} ${word}` : word;
+    if (row && g.measureText(next).width > maxW) {
+      rows.push(row);
+      row = word;
+    } else row = next;
+  }
+  if (row) rows.push(row);
+  return rows;
+}
+
+/**
+ * Long texts (e.g. portal listing titles) wrap to at most two rows and shrink
+ * a little if needed, instead of being squeezed sideways.
+ */
+function fitRows(g: CanvasRenderingContext2D, l: CardLine, s: number, ff: string, maxW: number) {
+  let size = l.size * s;
+  const font = () => `${l.weight ?? 600} ${size}px ${ff}`;
+  g.font = font();
+  let rows = wrapWords(g, l.text, maxW);
+  while (rows.length > 2 && size > l.size * s * 0.7) {
+    size *= 0.92;
+    g.font = font();
+    rows = wrapWords(g, l.text, maxW);
+  }
+  if (rows.length > 2) rows = [rows[0], rows.slice(1).join(" ")];
+  return { font: font(), size, rows };
+}
+
 /** Full card (intro / outro) centred on a brand-coloured panel. */
 export function drawCard(
   g: CanvasRenderingContext2D,
@@ -133,7 +166,9 @@ export function drawCard(
   g.save();
   g.globalAlpha = alpha;
   const pw = Math.min(W - 60 * s, 620 * s);
-  const total = lines.reduce((h, l) => h + l.size * s * 1.25 + (l.gap ?? 10) * s, 0) + 50 * s;
+  const maxW = pw - 40 * s;
+  const laid = lines.filter((l) => l.text).map((l) => ({ ...l, ...fitRows(g, l, s, ff, maxW) }));
+  const total = laid.reduce((h, l) => h + l.rows.length * l.size * 1.25 + (l.gap ?? 10) * s, 0) + 50 * s;
   const x = (W - pw) / 2;
   const y = (anchor === "bottom" ? H - total - 70 * s : (H - total) / 2) + (1 - alpha) * 20 * s;
   g.fillStyle = color;
@@ -142,11 +177,14 @@ export function drawCard(
   let cy = y + 30 * s;
   g.textAlign = "center";
   g.textBaseline = "top";
-  for (const l of lines) {
-    g.font = `${l.weight ?? 600} ${l.size * s}px ${ff}`;
+  for (const l of laid) {
+    g.font = l.font;
     g.fillStyle = `rgba(255,255,255,${l.opacity ?? 1})`;
-    g.fillText(l.text, W / 2, cy, pw - 40 * s);
-    cy += l.size * s * 1.25 + (l.gap ?? 10) * s;
+    for (const row of l.rows) {
+      g.fillText(row, W / 2, cy, maxW);
+      cy += l.size * 1.25;
+    }
+    cy += (l.gap ?? 10) * s;
   }
   g.restore();
 }

@@ -4,7 +4,7 @@ import type { Org } from "@/lib/demo/types";
 import { drawBrandBar, drawCard, drawLowerThird, drawPreviewBadge, fade, loadImage, type CardLine } from "./overlay";
 import { recordCanvas, VIDEO_SIZE } from "./record";
 
-const INTRO = 2200;
+const INTRO = 2800;
 const OUTRO = 2800;
 const DIP = 250;
 
