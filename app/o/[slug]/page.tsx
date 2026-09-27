@@ -8,13 +8,16 @@ import { VideoCard } from "@/components/VideoStudio";
 import { useMediaUrl } from "@/lib/demo/blobs";
 import { useRoomViews } from "@/lib/demo/roomViews";
 import { useHydrated, useOffer, useOrg } from "@/lib/demo/store";
-import type { Offer } from "@/lib/demo/types";
+import type { Offer, VideoKind } from "@/lib/demo/types";
 import { formatArea, formatPrice } from "@/lib/plan/area";
 
 const ApartmentViewer = dynamic(() => import("@/components/model3d/ApartmentViewer"), {
   ssr: false,
   loading: () => <div className="h-[62vh] min-h-[380px] animate-pulse rounded-3xl bg-stone-200/60" />,
 });
+
+/** Film AI first: it is the most convincing for buyers. */
+const VIDEO_ORDER: VideoKind[] = ["ai", "tour3d", "photo3d", "reel"];
 
 export default function PublicOffer() {
   const { slug } = useParams<{ slug: string }>();
@@ -28,7 +31,7 @@ export default function PublicOffer() {
     return <p className="p-10 text-center text-stone-500">Oferta nie istnieje albo została wycofana.</p>;
   }
   const rooms = offer.rooms.filter((r) => !["balkon", "przedpokoj", "lazienka", "wc"].includes(r.kind)).length;
-  const videos = [...offer.videos].sort((a, b) => (a.kind === "tour3d" ? -1 : 0) - (b.kind === "tour3d" ? -1 : 0));
+  const videos = [...offer.videos].sort((a, b) => VIDEO_ORDER.indexOf(a.kind) - VIDEO_ORDER.indexOf(b.kind));
   const gallery = [
     ...offer.photos.map((p) => ({ id: p.id, src: p.src, caption: p.roomName ?? "" })),
     ...offer.renders.map((r) => ({ id: r.id, src: r.after, caption: `${r.roomName} · wizualizacja` })),

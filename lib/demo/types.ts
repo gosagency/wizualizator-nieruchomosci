@@ -23,7 +23,8 @@ export type RoomRender = {
   after: MediaRef;
 };
 
-export type VideoKind = "tour3d" | "reel" | "photo3d";
+/** ai = Film AI from photos (open Wan 2.2 on our video worker). */
+export type VideoKind = "tour3d" | "reel" | "photo3d" | "ai";
 
 export type Video = {
   id: string;

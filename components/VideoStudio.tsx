@@ -1,7 +1,8 @@
 "use client";
 
-import { useState } from "react";
-import { putBlob, useMediaUrl } from "@/lib/demo/blobs";
+import { useCallback, useMemo, useState } from "react";
+import { AiVideoPanel, type AiPhoto } from "@/components/AiVideoPanel";
+import { getBlob, putBlob, useMediaUrl } from "@/lib/demo/blobs";
 import { updateOffer, useOrg } from "@/lib/demo/store";
 import type { Offer, Org, Video, VideoKind } from "@/lib/demo/types";
 import { formatArea, formatPrice } from "@/lib/plan/area";
@@ -58,7 +59,33 @@ export const VIDEO_LABEL: Record<VideoKind, string> = {
   tour3d: "Spacer 3D",
   reel: "Rolka",
   photo3d: "Film 3D ze zdjęć",
+  ai: "Film AI",
 };
+
+/** Clips per film by default: each takes about 5 minutes on the video worker. */
+const AI_PICK = 3;
+
+/** Film AI from the offer's room photos, saved in the offer when ready. */
+function OfferAiVideo({ offer, org }: { offer: Offer; org: Org }) {
+  const { id, photos: offerPhotos, rooms } = offer;
+  const photos = useMemo<AiPhoto[]>(() => {
+    const roomPhotos = offerPhotos.filter((p) => p.roomName);
+    return (roomPhotos.length ? roomPhotos : offerPhotos).map((p, i) => {
+      const room = rooms.find((r) => r.name === p.roomName);
+      return { id: p.id, caption: p.roomName ?? `Zdjęcie ${i + 1}`, subtitle: room ? formatArea(room.area) : undefined, file: () => getBlob(p.src), thumb: p.src };
+    });
+  }, [offerPhotos, rooms]);
+  const cards = useMemo(() => ({ intro: offerIntro(offer), outro: offerOutro(offer) }), [offer]);
+  const save = useCallback(
+    async ({ blob, mime, format }: { blob: Blob; mime: string; format: Video["format"] }) => {
+      const video = newVideo({ kind: "ai", format }, await putBlob(blob), mime);
+      updateOffer(id, (o) => ({ ...o, videos: [video, ...o.videos.filter((v) => !(v.kind === "ai" && v.format === format))] }));
+    },
+    [id],
+  );
+  if (!photos.length) return null;
+  return <AiVideoPanel photos={photos} org={org} pick={AI_PICK} cards={cards} onFinished={save} />;
+}
 
 export function VideoStudio({ offer }: { offer: Offer }) {
   const org = useOrg();
@@ -92,6 +119,7 @@ export function VideoStudio({ offer }: { offer: Offer }) {
 
   return (
     <div className="flex flex-col gap-6">
+      <OfferAiVideo offer={offer} org={org} />
       <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-4">
         {JOBS.map((job) => {
           const id = `${job.kind}-${job.format}`;

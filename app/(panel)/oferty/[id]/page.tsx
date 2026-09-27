@@ -32,6 +32,12 @@ export default function OfferPage() {
   const offer = useOffer(id);
   const org = useOrg();
   const [tab, setTab] = useState<Tab>("model");
+  // Film AI keeps working while the agent looks at other tabs, so Filmy stays mounted once opened.
+  const [filmsOpened, setFilmsOpened] = useState(false);
+  const openTab = (key: Tab) => {
+    setTab(key);
+    if (key === "filmy") setFilmsOpened(true);
+  };
   useRoomViews(hydrated && offer ? [offer] : []);
 
   if (!hydrated) return null;
@@ -93,7 +99,7 @@ export default function OfferPage() {
             role="tab"
             type="button"
             aria-selected={tab === key}
-            onClick={() => setTab(key)}
+            onClick={() => openTab(key)}
             className={`-mb-px whitespace-nowrap border-b-2 px-4 py-2.5 text-sm font-medium transition ${tab === key ? "border-brand text-stone-900" : "border-transparent text-stone-500 hover:text-stone-800"}`}
           >
             {label}
@@ -103,7 +109,11 @@ export default function OfferPage() {
       </div>
 
       {tab === "model" && <ApartmentViewer plan={offer.plan} accent={org.color} />}
-      {tab === "filmy" && <VideoStudio offer={offer} />}
+      {(tab === "filmy" || filmsOpened) && (
+        <div hidden={tab !== "filmy"}>
+          <VideoStudio offer={offer} />
+        </div>
+      )}
       {tab === "zdjecia" && <PhotosAndViews offer={offer} />}
       {tab === "publikacja" && <Publish offer={offer} />}
     </>

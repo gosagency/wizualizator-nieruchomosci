@@ -3,14 +3,18 @@
 import { useEffect, useRef, useState } from "react";
 import { Button, Card, Pill } from "@/components/ui";
 import { fetchVideo, jobStatus, submitJob, workerHealth, workerUrl } from "@/lib/aiVideo/client";
-import type { Org } from "@/lib/demo/types";
+import { useMediaUrl } from "@/lib/demo/blobs";
+import type { MediaRef, Org } from "@/lib/demo/types";
+import type { CardLine } from "@/lib/video/overlay";
 
-export type AiPhoto = { id: string; file: Blob; caption: string };
+/** A photo for the AI film; `file` can load lazily (offer photos live in IndexedDB). */
+export type AiPhoto = { id: string; caption: string; subtitle?: string; file: Blob | (() => Promise<Blob | undefined>); thumb?: MediaRef };
 
 type Format = "16:9" | "9:16";
 type Job = {
   photoId: string;
   caption: string;
+  subtitle?: string;
   jobId?: string;
   status: "sending" | "queued" | "running" | "done" | "error";
   progress?: number;
@@ -22,14 +26,55 @@ type Job = {
 /** Minutes per clip on the owner's laptop GPU (RTX 5060 8 GB, Wan 2.2 5B, 1280×704, 4 s). */
 const MINUTES_PER_CLIP = 5;
 
-export function AiVideoPanel({ photos, org }: { photos: AiPhoto[]; org: Org }) {
+const DEFAULT_CARDS = (org: Org): { intro: CardLine[]; outro: CardLine[] } => ({
+  intro: [
+    { text: "Mieszkanie na sprzedaż", size: 22, weight: 500, opacity: 0.85 },
+    { text: org.name, size: 36, weight: 700 },
+  ],
+  outro: [
+    { text: "Umów oglądanie", size: 30, weight: 700, gap: 12 },
+    { text: org.name, size: 22, weight: 500, opacity: 0.9 },
+  ],
+});
+
+/** First photo of each room, then the rest, up to n. */
+function defaultPick(photos: AiPhoto[], n: number): string[] {
+  const out: string[] = [];
+  const rooms = new Set<string>();
+  for (const p of photos) {
+    if (out.length < n && !rooms.has(p.caption)) {
+      rooms.add(p.caption);
+      out.push(p.id);
+    }
+  }
+  for (const p of photos) if (out.length < n && !out.includes(p.id)) out.push(p.id);
+  return out;
+}
+
+const clipsLabel = (n: number) => `${n} ${n === 1 ? "ujęcie" : n % 10 >= 2 && n % 10 <= 4 && (n % 100 < 12 || n % 100 > 14) ? "ujęcia" : "ujęć"}`;
+
+type Props = {
+  photos: AiPhoto[];
+  org: Org;
+  /** Let the agent choose photos, starting with this many (each clip takes minutes). */
+  pick?: number;
+  cards?: { intro: CardLine[]; outro: CardLine[] };
+  /** Called with the finished film instead of only showing it (e.g. save it in the offer). */
+  onFinished?: (film: { blob: Blob; mime: string; format: Format }) => Promise<void> | void;
+};
+
+export function AiVideoPanel({ photos, org, pick, cards, onFinished }: Props) {
   const [worker, setWorker] = useState<{ url: string | null; ok: boolean | null; queue: number | null }>({ url: null, ok: null, queue: null });
   const [format, setFormat] = useState<Format>("16:9");
   const [jobs, setJobs] = useState<Job[]>([]);
   const [final, setFinal] = useState<{ url: string; ext: string; format: Format } | null>(null);
   const [montage, setMontage] = useState<number | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [saved, setSaved] = useState(false);
+  const [picked, setPicked] = useState<string[] | null>(null);
   const montageStarted = useRef(false);
+  const chosenIds = pick ? (picked ?? defaultPick(photos, pick)) : photos.map((p) => p.id);
+  const chosen = photos.filter((p) => chosenIds.includes(p.id));
 
   useEffect(() => {
     const url = workerUrl();
@@ -71,41 +116,40 @@ export function AiVideoPanel({ photos, org }: { photos: AiPhoto[]; org: Org }) {
       try {
         const { recordMontage } = await import("@/lib/video/montage");
         const { blob, mime } = await recordMontage(
-          done.map((j) => ({ src: j.url!, caption: j.caption })),
+          done.map((j) => ({ src: j.url!, caption: j.caption, subtitle: j.subtitle })),
           org,
           format,
-          {
-            intro: [
-              { text: "Mieszkanie na sprzedaż", size: 22, weight: 500, opacity: 0.85 },
-              { text: org.name, size: 36, weight: 700 },
-            ],
-            outro: [
-              { text: "Umów oglądanie", size: 30, weight: 700, gap: 12 },
-              { text: org.name, size: 22, weight: 500, opacity: 0.9 },
-            ],
-          },
+          cards ?? DEFAULT_CARDS(org),
           (p) => setMontage(p),
         );
-        setFinal({ url: URL.createObjectURL(blob), ext: mime.includes("mp4") ? "mp4" : "webm", format });
+        if (onFinished) {
+          await onFinished({ blob, mime, format });
+          setSaved(true);
+        } else {
+          setFinal({ url: URL.createObjectURL(blob), ext: mime.includes("mp4") ? "mp4" : "webm", format });
+        }
       } catch (e) {
         setError(e instanceof Error ? e.message : "Nie udało się połączyć klipów.");
       } finally {
         setMontage(null);
       }
     })();
-  }, [jobs, org, format]);
+  }, [jobs, org, format, cards, onFinished]);
 
   const start = async () => {
     const base = worker.url;
-    if (!base || !photos.length) return;
+    if (!base || !chosen.length) return;
     setError(null);
     setFinal(null);
+    setSaved(false);
     montageStarted.current = false;
-    const initial: Job[] = photos.map((p) => ({ photoId: p.id, caption: p.caption, status: "sending" }));
+    const initial: Job[] = chosen.map((p) => ({ photoId: p.id, caption: p.caption, subtitle: p.subtitle, status: "sending" }));
     setJobs(initial);
-    for (const p of photos) {
+    for (const p of chosen) {
       try {
-        const jobId = await submitJob(base, p.file, p.caption, format);
+        const file = typeof p.file === "function" ? await p.file() : p.file;
+        if (!file) throw new Error("Nie udało się wczytać zdjęcia.");
+        const jobId = await submitJob(base, file, p.caption, format);
         setJobs((xs) => xs.map((x) => (x.photoId === p.id ? { ...x, jobId, status: "queued" } : x)));
       } catch (e) {
         setJobs((xs) => xs.map((x) => (x.photoId === p.id ? { ...x, status: "error", error: e instanceof Error ? e.message : "Błąd" } : x)));
@@ -130,6 +174,33 @@ export function AiVideoPanel({ photos, org }: { photos: AiPhoto[]; org: Org }) {
         </Pill>
       </div>
 
+      {pick && (
+        <div className="flex flex-col gap-2">
+          <p className="text-sm text-stone-600">Wybierz zdjęcia do filmu. Jedno zdjęcie to jedno ujęcie, ok. {MINUTES_PER_CLIP} min generowania.</p>
+          <ul className="grid grid-cols-3 gap-2 sm:grid-cols-4 lg:grid-cols-6">
+            {photos.map((p) => {
+              const on = chosenIds.includes(p.id);
+              return (
+                <li key={p.id}>
+                  <button
+                    type="button"
+                    aria-pressed={on}
+                    aria-label={`${p.caption}: ${on ? "w filmie" : "pominięte"}`}
+                    disabled={busy}
+                    onClick={() => setPicked(on ? chosenIds.filter((id) => id !== p.id) : [...chosenIds, p.id])}
+                    className={`relative block w-full overflow-hidden rounded-xl text-left ring-2 transition ${on ? "ring-brand" : "opacity-60 ring-transparent hover:opacity-100"}`}
+                  >
+                    <Thumb src={p.thumb} alt={p.caption} />
+                    <span className="absolute inset-x-0 bottom-0 truncate bg-gradient-to-t from-black/70 to-transparent px-2 pb-1 pt-4 text-xs font-medium text-white">{p.caption}</span>
+                    {on && <span className="absolute right-1.5 top-1.5 flex h-5 w-5 items-center justify-center rounded-full bg-brand text-xs text-white">✓</span>}
+                  </button>
+                </li>
+              );
+            })}
+          </ul>
+        </div>
+      )}
+
       {worker.ok === false && (
         <p className="rounded-xl bg-amber-50 px-4 py-3 text-sm text-amber-800">
           Serwer wideo jest teraz wyłączony. Model 3D i film 3D działają normalnie. Film AI będzie dostępny, gdy serwer zostanie uruchomiony.
@@ -151,10 +222,10 @@ export function AiVideoPanel({ photos, org }: { photos: AiPhoto[]; org: Org }) {
             </button>
           ))}
         </div>
-        <Button onClick={start} disabled={!worker.ok || !photos.length || busy}>
-          {busy ? "Trwa generowanie…" : `Utwórz film AI (${photos.length} ${photos.length === 1 ? "ujęcie" : photos.length < 5 ? "ujęcia" : "ujęć"})`}
+        <Button onClick={start} disabled={!worker.ok || !chosen.length || busy}>
+          {busy ? "Trwa generowanie…" : `Utwórz film AI (${clipsLabel(chosen.length)})`}
         </Button>
-        {photos.length > 0 && !busy && <span className="text-xs text-stone-500">ok. {photos.length * MINUTES_PER_CLIP} min</span>}
+        {chosen.length > 0 && !busy && <span className="text-xs text-stone-500">ok. {chosen.length * MINUTES_PER_CLIP} min</span>}
       </div>
 
       {jobs.length > 0 && (
@@ -184,9 +255,14 @@ export function AiVideoPanel({ photos, org }: { photos: AiPhoto[]; org: Org }) {
         </ul>
       )}
 
-      {remaining > 0 && <p className="text-xs text-stone-500">Zostało ujęć: {remaining}. Możesz w tym czasie obejrzeć widok 3D poniżej.</p>}
+      {remaining > 0 && (
+        <p className="text-xs text-stone-500">
+          Zostało ujęć: {remaining}, ok. {remaining * MINUTES_PER_CLIP} min. Nie zamykaj tej strony, film złoży się sam.
+        </p>
+      )}
       {montage !== null && <p className="text-sm text-stone-600">Łączenie ujęć w jeden film… {Math.round(montage * 100)}%</p>}
       {error && <p className="rounded-xl bg-red-50 px-4 py-3 text-sm text-red-700">{error}</p>}
+      {saved && <p className="rounded-xl bg-emerald-50 px-4 py-3 text-sm text-emerald-800">Film AI jest gotowy i zapisany w ofercie. Widać go poniżej i na stronie oferty.</p>}
 
       {final && (
         <figure className="flex max-w-3xl flex-col gap-2">
@@ -201,4 +277,10 @@ export function AiVideoPanel({ photos, org }: { photos: AiPhoto[]; org: Org }) {
       )}
     </Card>
   );
+}
+
+function Thumb({ src, alt }: { src?: MediaRef; alt: string }) {
+  const url = useMediaUrl(src);
+  // eslint-disable-next-line @next/next/no-img-element
+  return url ? <img src={url} alt={alt} className="aspect-[4/3] w-full object-cover" /> : <div className="aspect-[4/3] w-full animate-pulse bg-stone-200" />;
 }
