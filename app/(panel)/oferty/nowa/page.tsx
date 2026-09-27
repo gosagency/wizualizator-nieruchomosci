@@ -2,7 +2,7 @@
 
 import dynamic from "next/dynamic";
 import { useRouter } from "next/navigation";
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { Button, Card, Field, Input, PageHeader, Select } from "@/components/ui";
 import { compressImage, putBlob } from "@/lib/demo/blobs";
 import { saveOffer, slugify } from "@/lib/demo/store";
@@ -50,6 +50,12 @@ export default function NewOffer() {
   const [importing, setImporting] = useState<string | null>(null);
   const [importError, setImportError] = useState<string | null>(null);
   const [imported, setImported] = useState<ImportedListing | null>(null);
+
+  // /oferty/nowa?link=<listing URL> pre-fills the import field (a link to send someone for a quick try).
+  useEffect(() => {
+    const link = new URLSearchParams(window.location.search).get("link");
+    if (link && /^https?:\/\//i.test(link)) void Promise.resolve().then(() => setImportUrl(link));
+  }, []);
 
   const runImport = async () => {
     setImportError(null);

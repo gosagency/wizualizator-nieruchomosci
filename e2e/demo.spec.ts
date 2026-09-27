@@ -63,8 +63,10 @@ async function importMockListing(page: Page) {
       },
     }),
   );
-  await page.goto("/oferty/nowa");
-  await page.getByLabel("Link do ogłoszenia").fill("https://www.otodom.pl/pl/oferta/test-ID0TEST");
+  // a shared link can carry the listing: /oferty/nowa?link=…
+  const listing = "https://www.otodom.pl/pl/oferta/test-ID0TEST";
+  await page.goto(`/oferty/nowa?link=${encodeURIComponent(listing)}`);
+  await expect(page.getByLabel("Link do ogłoszenia")).toHaveValue(listing);
   await page.getByText("To ogłoszenie naszego biura").click();
   await page.getByRole("button", { name: "Importuj ogłoszenie" }).click();
 }
