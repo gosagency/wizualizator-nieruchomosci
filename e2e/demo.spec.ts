@@ -47,3 +47,36 @@ test("walk mode: the visitor starts in the hallway and walks to the bedroom", as
   await page.getByRole("button", { name: "Z góry", exact: true }).click();
   await expect(page.getByRole("button", { name: "Rzut z góry" })).toBeVisible();
 });
+
+test("agent imports a listing from a link and the form fills itself", async ({ page }) => {
+  // synthetic listing and photo, so the test does not depend on a live portal
+  const png = Buffer.from("iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==", "base64");
+  await page.route("https://img.example/**", (route) => route.fulfill({ status: 200, contentType: "image/png", body: png, headers: { "access-control-allow-origin": "*" } }));
+  await page.route("**/api/import", (route) =>
+    route.fulfill({
+      json: {
+        source: "otodom", portal: "Otodom", url: "https://www.otodom.pl/pl/oferta/test-ID0TEST",
+        title: "Słoneczne 3 pokoje z balkonem", street: "ul. Testowa 7", city: "Kraków", district: "Prądnik Czerwony",
+        area: 52, price: 769000, rooms: 3, floor: "3/4", description: "Opis testowy.",
+        images: ["https://img.example/1.png", "https://img.example/2.png"], floorPlans: [],
+        agentName: "Jan Testowy", agentPhone: "+48 500 000 000", balcony: true, separateKitchen: true,
+      },
+    }),
+  );
+  await page.goto("/oferty/nowa");
+  await page.getByLabel("Link do ogłoszenia").fill("https://www.otodom.pl/pl/oferta/test-ID0TEST");
+  await page.getByText("To ogłoszenie naszego biura").click();
+  await page.getByRole("button", { name: "Importuj ogłoszenie" }).click();
+  await expect(page.getByText("Zaimportowano z Otodom")).toBeVisible({ timeout: 15_000 });
+  await expect(page.getByPlaceholder("ul. Lipowa 5")).toHaveValue("ul. Testowa 7");
+  await expect(page.getByPlaceholder("np. Krowodrza")).toHaveValue("Prądnik Czerwony");
+  await page.getByRole("button", { name: "Dalej →" }).click();
+  await expect(page.locator('input[value="Kuchnia"]')).toBeVisible();
+  await expect(page.getByText("zgadza się")).toBeVisible();
+  await page.getByRole("button", { name: "Dalej →" }).click();
+  await expect(page.locator("figure img")).toHaveCount(2);
+  await page.getByRole("button", { name: "Dalej →" }).click();
+  await page.getByRole("button", { name: "Zapisz ofertę" }).click();
+  await expect(page.getByRole("heading", { level: 1 })).toHaveText("Słoneczne 3 pokoje z balkonem", { timeout: 20_000 });
+  await expect(page.getByRole("link", { name: "Źródło ogłoszenia ↗" })).toHaveAttribute("href", "https://www.otodom.pl/pl/oferta/test-ID0TEST");
+});

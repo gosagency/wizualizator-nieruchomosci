@@ -8,7 +8,10 @@ import { compressImage, putBlob } from "@/lib/demo/blobs";
 import { saveOffer, slugify } from "@/lib/demo/store";
 import { STYLE_LABELS, type Offer, type Photo, type Style } from "@/lib/demo/types";
 import { autoLayout, type RoomInput } from "@/lib/plan/autoLayout";
-import { checkArea, formatArea, round1 } from "@/lib/plan/area";
+import { checkArea, formatArea, formatPrice } from "@/lib/plan/area";
+import { MAX_PRESET_ROOMS, presetRooms } from "@/lib/plan/presets";
+import { downloadPhotos, importListing } from "@/lib/import/client";
+import { SUPPORTED_PORTALS, type ImportedListing } from "@/lib/import/types";
 import { ROOM_KIND_LABELS, type RoomKind } from "@/lib/plan/types";
 
 const ApartmentViewer = dynamic(() => import("@/components/model3d/ApartmentViewer"), {
@@ -17,23 +20,6 @@ const ApartmentViewer = dynamic(() => import("@/components/model3d/ApartmentView
 });
 
 const STEPS = ["Dane", "Pomieszczenia", "Zdjęcia", "Model 3D"];
-
-/** Typical split of the usable area, by number of rooms. */
-const PRESETS: Record<number, Array<[string, RoomKind, number]>> = {
-  1: [["Pokój z aneksem", "salon", 0.66], ["Łazienka", "lazienka", 0.16], ["Przedpokój", "przedpokoj", 0.18]],
-  2: [["Salon z aneksem", "salon", 0.45], ["Sypialnia", "sypialnia", 0.27], ["Łazienka", "lazienka", 0.12], ["Przedpokój", "przedpokoj", 0.16]],
-  3: [["Salon z aneksem", "salon", 0.36], ["Sypialnia", "sypialnia", 0.22], ["Pokój", "pokoj", 0.15], ["Łazienka", "lazienka", 0.11], ["Przedpokój", "przedpokoj", 0.16]],
-  4: [["Salon z aneksem", "salon", 0.3], ["Sypialnia", "sypialnia", 0.17], ["Pokój", "pokoj", 0.13], ["Pokój dziecięcy", "dzieciecy", 0.12], ["Łazienka", "lazienka", 0.09], ["WC", "wc", 0.03], ["Przedpokój", "przedpokoj", 0.16]],
-};
-
-function presetRooms(count: number, area: number): RoomInput[] {
-  const rows = PRESETS[count];
-  const rooms = rows.map(([name, kind, share]) => ({ name, kind, area: round1(area * share) }));
-  const diff = round1(area - rooms.reduce((s, r) => s + r.area, 0));
-  const hall = rooms.find((r) => r.kind === "przedpokoj")!;
-  hall.area = round1(hall.area + diff);
-  return rooms;
-}
 
 type PendingPhoto = { id: string; file: File; url: string; roomName: string };
 
@@ -58,11 +44,67 @@ export default function NewOffer() {
   const [balcony, setBalcony] = useState(4);
   const [photos, setPhotos] = useState<PendingPhoto[]>([]);
   const [consent, setConsent] = useState(false);
+  const [separateKitchen, setSeparateKitchen] = useState(false);
+  const [importUrl, setImportUrl] = useState("");
+  const [importRights, setImportRights] = useState(false);
+  const [importing, setImporting] = useState<string | null>(null);
+  const [importError, setImportError] = useState<string | null>(null);
+  const [imported, setImported] = useState<ImportedListing | null>(null);
+
+  const runImport = async () => {
+    setImportError(null);
+    setImporting("Pobieranie ogłoszenia…");
+    try {
+      const l = await importListing(importUrl);
+      const area = l.area > 10 ? l.area : data.area;
+      const count = l.rooms > 0 ? Math.min(MAX_PRESET_ROOMS, l.rooms) : roomCount;
+      const nextRooms = presetRooms(count, area, { separateKitchen: l.separateKitchen });
+      setData((d) => ({
+        ...d,
+        street: l.street || d.street,
+        city: l.city || d.city,
+        district: l.district || d.district,
+        area,
+        price: l.price || d.price,
+        floor: l.floor || d.floor,
+        description: l.description || d.description,
+        agentName: l.agentName || d.agentName,
+        agentPhone: l.agentPhone || d.agentPhone,
+      }));
+      setRoomCount(count);
+      setSeparateKitchen(l.separateKitchen);
+      setRooms(nextRooms);
+      setBalcony(l.balcony ? 4 : 0);
+      setImported(l);
+      // photos: interiors first; floor plans at the end without a room
+      const urls = [...l.images, ...l.floorPlans];
+      if (urls.length) {
+        setImporting(`Pobieranie zdjęć 0/${Math.min(12, urls.length)}…`);
+        const files = await downloadPhotos(urls, 12, (done, total) => setImporting(`Pobieranie zdjęć ${done}/${total}…`));
+        const names = nextRooms.filter((r) => r.kind !== "przedpokoj").map((r) => r.name);
+        const planStart = Math.min(12, l.images.length);
+        setPhotos(
+          files.map((file, i) => ({
+            id: crypto.randomUUID(),
+            file,
+            url: URL.createObjectURL(file),
+            roomName: i >= planStart ? "" : (names[i % names.length] ?? ""),
+          })),
+        );
+      }
+    } catch (e) {
+      setImportError(e instanceof Error ? e.message : "Nie udało się pobrać ogłoszenia.");
+    } finally {
+      setImporting(null);
+    }
+  };
 
   const areaCheck = checkArea(rooms, data.area);
   const allRooms = useMemo<RoomInput[]>(() => (balcony > 0 ? [...rooms, { name: "Balkon", kind: "balkon", area: balcony }] : rooms), [rooms, balcony]);
   const plan = useMemo(() => (step === 3 ? autoLayout(allRooms) : null), [step, allRooms]);
-  const title = `${roomCount === 1 ? "Kawalerka" : `${roomCount} pokoje`}${balcony > 0 ? " z balkonem" : ""}, ${formatArea(data.area).replace(",0", "")}`;
+  const title =
+    imported?.title ||
+    `${roomCount === 1 ? "Kawalerka" : `${roomCount} pokoje`}${balcony > 0 ? " z balkonem" : ""}, ${formatArea(data.area).replace(",0", "")}`;
 
   const canNext = [
     data.city.trim() !== "" && data.area > 10 && data.price > 0,
@@ -106,6 +148,7 @@ export default function NewOffer() {
       rooms: allRooms,
       plan: plan ?? autoLayout(allRooms),
       photos: stored,
+      sourceUrl: imported?.url,
       renders: [],
       videos: [],
     };
@@ -130,6 +173,44 @@ export default function NewOffer() {
       </ol>
 
       {step === 0 && (
+        <Card className="flex flex-col gap-3 ring-2 ring-brand/20">
+          <div>
+            <h2 className="font-semibold">Masz już ogłoszenie? Wklej link</h2>
+            <p className="text-sm text-stone-600">
+              Uzupełnimy adres, cenę, metraż, pokoje, piętro, opis, kontakt i zdjęcia. Obsługiwane: {SUPPORTED_PORTALS.map((p) => p.name).join(", ")} (najwięcej danych z Otodom).
+            </p>
+          </div>
+          <div className="flex flex-col gap-2 sm:flex-row">
+            <Input
+              type="url"
+              inputMode="url"
+              value={importUrl}
+              onChange={(e) => setImportUrl(e.target.value)}
+              placeholder="https://www.otodom.pl/pl/oferta/…"
+              aria-label="Link do ogłoszenia"
+            />
+            <Button onClick={runImport} disabled={!importUrl.trim() || !importRights || !!importing} className="shrink-0">
+              {importing ?? "Importuj ogłoszenie"}
+            </Button>
+          </div>
+          <label className="flex items-start gap-2 text-xs text-stone-600">
+            <input type="checkbox" checked={importRights} onChange={(e) => setImportRights(e.target.checked)} className="mt-0.5 h-4 w-4 accent-[var(--brand)]" />
+            To ogłoszenie naszego biura albo mam zgodę jego autora na użycie opisu i zdjęć.
+          </label>
+          {importError && <p className="rounded-xl bg-red-50 px-3 py-2 text-sm text-red-700">{importError}</p>}
+          {imported && !importing && (
+            <p className="rounded-xl bg-emerald-50 px-3 py-2 text-sm text-emerald-800">
+              Zaimportowano z {imported.portal}: <b>{imported.title || "ogłoszenie"}</b>
+              {imported.price ? ` · ${formatPrice(imported.price)}` : ""}
+              {imported.area ? ` · ${formatArea(imported.area)}` : ""}
+              {imported.rooms ? ` · ${imported.rooms} pok.` : ""}
+              {photos.length ? ` · ${photos.length} zdjęć` : ""}. Metraże pojedynczych pokoi są szacunkowe: popraw je w kroku 2.
+            </p>
+          )}
+        </Card>
+      )}
+
+      {step === 0 && (
         <Card className="grid gap-4 sm:grid-cols-2">
           <Field label="Ulica i numer">
             <Input value={data.street} onChange={(e) => set("street", e.target.value)} placeholder="ul. Lipowa 5" />
@@ -151,7 +232,7 @@ export default function NewOffer() {
               onChange={(e) => {
                 const a = Number(e.target.value);
                 set("area", a);
-                if (a > 10) setRooms(presetRooms(roomCount, a));
+                if (a > 10) setRooms(presetRooms(roomCount, a, { separateKitchen }));
               }}
             />
           </Field>
@@ -166,7 +247,7 @@ export default function NewOffer() {
                   type="button"
                   onClick={() => {
                     setRoomCount(n);
-                    setRooms(presetRooms(n, data.area));
+                    setRooms(presetRooms(n, data.area, { separateKitchen }));
                   }}
                   className={`flex-1 rounded-xl py-2.5 text-sm font-medium ring-1 transition ${roomCount === n ? "bg-brand text-white ring-brand" : "bg-stone-50 ring-stone-900/10 hover:bg-white"}`}
                 >
@@ -269,6 +350,7 @@ export default function NewOffer() {
                   <img src={p.url} alt="" className="aspect-[4/3] w-full object-cover" />
                   <figcaption className="flex gap-1 p-2">
                     <Select value={p.roomName} onChange={(e) => setPhotos((ps) => ps.map((x) => (x.id === p.id ? { ...x, roomName: e.target.value } : x)))} className="py-1.5 text-xs" aria-label="Pomieszczenie">
+                      <option value="">Rzut / inne</option>
                       {allRooms.map((r) => (
                         <option key={r.name} value={r.name}>
                           {r.name}

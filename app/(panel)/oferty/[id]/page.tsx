@@ -61,6 +61,14 @@ export default function OfferPage() {
           </div>
           <p className="mt-1 text-stone-500">
             {[offer.street, offer.district, offer.city].filter(Boolean).join(", ")}
+            {offer.sourceUrl && (
+              <>
+                {" · "}
+                <a href={offer.sourceUrl} target="_blank" rel="noreferrer" className="text-brand hover:underline">
+                  Źródło ogłoszenia ↗
+                </a>
+              </>
+            )}
           </p>
           <p className="mt-3 flex flex-wrap gap-x-4 gap-y-1 text-sm text-stone-600">
             <span className="text-lg font-semibold text-stone-900">{formatPrice(offer.price)}</span>

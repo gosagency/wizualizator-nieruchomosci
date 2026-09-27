@@ -56,6 +56,8 @@ export type Offer = {
   rooms: RoomInput[];
   plan: Plan;
   photos: Photo[];
+  /** listing the offer was imported from (Otodom etc.) */
+  sourceUrl?: string;
   renders: RoomRender[];
   videos: Video[];
 };

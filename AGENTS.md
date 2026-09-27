@@ -50,6 +50,7 @@ npm run e2e          # Playwright; needs: npx playwright install chromium
 | `lib/depth/`, `components/photo3d/` | depth from a photo (Depth Anything V2) and 3D photo viewer |
 | `lib/aiVideo/`, `components/AiVideoPanel.tsx` | client for the Film AI worker |
 | `video-worker/` | Film AI worker (Node) + ComfyUI workflow + custom node `comfy_nodes` |
+| `lib/import/`, `app/api/import/` | listing import from portal links (Otodom full data, others via OpenGraph/JSON-LD); image relay for CDN edges without CORS |
 | `lib/demo/` | browser data store for the demo |
 | `tests/unit`, `e2e/` | Vitest and Playwright tests |
 

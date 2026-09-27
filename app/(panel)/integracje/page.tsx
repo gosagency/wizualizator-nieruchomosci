@@ -5,6 +5,12 @@ export const metadata: Metadata = { title: "Integracje · Wizualizator nieruchom
 
 const ITEMS: Array<{ title: string; status: "gotowe" | "w przygotowaniu"; text: string; how: string[] }> = [
   {
+    title: "Import ogłoszenia z portalu (Otodom i inne)",
+    status: "gotowe",
+    text: "Wklejasz link do istniejącego ogłoszenia, a oferta uzupełnia się sama: adres, cena, metraż, pokoje, piętro, opis, kontakt i zdjęcia.",
+    how: ["Otodom: pełne dane i wszystkie zdjęcia", "Morizon, Gratka, OLX i inne: podstawowe dane", "Od razu model 3D, spacer i filmy"],
+  },
+  {
     title: "Portale: Otodom, Morizon, Gratka",
     status: "gotowe",
     text: "Link do oferty 3D trafia w pole wirtualnego spaceru, film 16:9 do galerii.",
